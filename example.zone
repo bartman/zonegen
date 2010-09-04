@@ -1,0 +1,34 @@
+$TTL 86400
+
+@       IN      SOA     ns1.example.com.      root.example.com. (
+                        2010090401      ; serial number YYMMDDNN
+                        28800           ; Refresh
+                        7200            ; Retry
+                        864000          ; Expire
+                        86400           ; Min TTL
+                        )
+
+                NS      foo.ipv6.example.com. 
+                NS      foo.ipv4.example.com. 
+
+                MX      10 bar.ipv6.example.com.
+                MX      20 bar.ipv4.example.com.
+
+$ORIGIN example.com.
+
+www             CNAME   baz
+
+foo             CNAME   foo.ipv4
+                CNAME   foo.ipv6
+foo.ipv4        IN A    10.0.0.1
+foo.ipv6        IN AAAA 2001::1
+
+bar             CNAME   bar.ipv4
+                CNAME   bar.ipv6
+bar.ipv4        IN A    10.0.0.2
+bar.ipv6        IN AAAA 2001::2
+
+baz             CNAME   baz.ipv4
+                CNAME   baz.ipv6
+baz.ipv4        IN A    10.0.0.3
+baz.ipv6        IN AAAA 2001::3
