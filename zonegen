@@ -15,10 +15,21 @@ use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
 
 zonegen - domain zone generator
 
+=head1 SYNTAX
+
+    zonegen [--selector <selector>] [--output <output-file>] <input-file>
+    zonegen --help
+
 =head1 SYNOPSIS
 
     # process metazone file, generate zone file
     zonegen example.com.metazone
+
+    # use a multi-view selector
+    zonegen --selector int example.com.metazone
+
+    # output to a different file
+    zonegen --output example.com.zone example.com.metazone
 
 =cut
 
@@ -107,7 +118,7 @@ my $grammar = <<'_EOGRAMMAR_';
 
         SPECIAL_RULE : '@mx' | '@ns'
 
-        SELECTOR    : 'int' | 'ext'
+        SELECTOR    : /[a-z]+/i
 
         DOMAIN_NAME : /[a-z0-9.-]+/i
 
@@ -287,7 +298,7 @@ sub dump {
 sub read_old_timestamp {
         my $self = shift;
 
-        my $file = $self->{file};
+        my $file = $self->{output_file};
         -f $file || return;
 
         my $data;
@@ -306,18 +317,18 @@ sub read_old_timestamp {
 
 sub generate {
         my $self = shift;
-        my ($selector,$file) = @_;
+        my ($output_file,$selector) = @_;
 
         dbg "selector=$selector";
         $self->{selector} = $selector;
 
-        dbg "file=$file";
-        $self->{file} = $file;
+        dbg "output_file=$output_file";
+        $self->{output_file} = $output_file;
         $self->read_old_timestamp;
 
         my %vars = %{$self->{vars}};
 
-        open(OUT,">$file") or die "failed to open '$file' for writing\n";
+        open(OUT,">$output_file") or die "failed to open '$output_file' for writing\n";
 
         # read variables
         my $domain    = $vars{domain};
@@ -407,9 +418,14 @@ END
 # ------------------------------------------------------------------------
 # this is the main part of the program
 package main;
-my $opt_file;
+my $opt_input;
+my $opt_output;
+my $opt_selector;
 
 my $rc = GetOptions(
+        # main options
+        'selector=s'=> \$opt_selector,
+        'output=s'  => \$opt_output,
         # verbose
         'debug'     => \$debug,
         # help
@@ -420,18 +436,22 @@ pod2usage('Invalid options specified.') if !$rc;
 
 ( $#ARGV < 0 ) && die "need to specify a metazone file to read.\n";
 ( $#ARGV > 0 ) && die "too many options; only one metazone file please.\n";
-$opt_file = $ARGV[0];
+$opt_input = $ARGV[0];
 
 #$::RD_TRACE = 1;
 $::RD_HINT = 1;
 
 my $mz = MetaZone->new();
-$mz->parse($opt_file);
+$mz->parse($opt_input);
 
 $mz->dump() if $debug;
 
-my $domain = $mz->{vars}->{domain};
-$mz->generate('int', "internal/${domain}.zone");
-$mz->generate('ext', "external/${domain}.zone");
+if (not defined $opt_output) {
+        my $dom = $mz->{vars}->{domain};
+        my $sel = "";
+        $sel = ".$opt_selector" if defined $opt_selector;
+        $opt_output = "${dom}${sel}.zone"
+}
 
+$mz->generate($opt_output, $opt_selector);
 
