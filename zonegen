@@ -15,12 +15,19 @@ use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
 
 zonegen - domain zone generator
 
-=head1 SYNTAX
-
-    zonegen [--selector <selector>] [--output <output-file>] <input-file>
-    zonegen --help
-
 =head1 SYNOPSIS
+
+    # zone generation
+    zonegen [-s <selector> | --selector <selector>] \
+            [-O <output-file> | --output <output-file>] \
+            [-r <address-prefix> | --reverse <address-prefix>] \
+            <input-file>
+
+    # getting help
+    zonegen --help
+    zonegen --usage
+
+Most common usage cases:
 
     # process metazone file, generate zone file
     zonegen example.com.metazone
@@ -30,6 +37,59 @@ zonegen - domain zone generator
 
     # output to a different file
     zonegen --output example.com.zone example.com.metazone
+
+    # generate a reverse zone file
+    zonegen --reverse 10.10.10. example.com.metazone
+    zonegen --reverse 2000:1:2:3: example.com.metazone
+
+=head1 OPTIONS
+
+#over 4
+
+=item -s --selector <selector>
+
+...
+
+=item -O --output <output-file>
+
+...
+
+=item -r --reverse <address-prefix>
+
+...
+
+=item --help
+
+...
+
+=item --usage
+
+...
+
+=item --debug
+
+...
+
+#back
+
+=head1 FILES
+
+   /etc/bind/named.conf
+   /etc/bind/internal/*.zone
+   /etc/bind/external/*.zone
+
+=head1 SEE ALSO
+
+   BIND 9 Administrator Reference Manual.
+
+=head1 HISTORY
+
+Designed by Bart Trojanowski B<bart@jukie.net>.
+
+=head1 BUGS
+
+Lots, I am sure.
+
 
 =cut
 
@@ -315,7 +375,7 @@ sub read_old_timestamp {
         $self->{old_timestamp} = $1 if defined $1;
 }
 
-sub generate {
+sub generate_forward {
         my $self = shift;
         my ($output_file,$selector) = @_;
 
@@ -373,7 +433,7 @@ END
                                         $mxnum++;
                                 }
                                 printf OUT "%-20s %-8s   %s\n", "@", $type, "$fld";
-                        } elsif ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
+                        } elsif ($fld =~ m/^\d+\.\d+\.\d+\.\d+$/) {
                                 if ($use_cname) {
                                         printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
                                         push @cnames, "$host.$ipv4"
@@ -381,7 +441,7 @@ END
                                         printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
                                         printf OUT "%-20s IN A       %s\n", "$host", "$fld";
                                 }
-                        } elsif ($fld =~ m/([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/) {
+                        } elsif ($fld =~ m/^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/) {
                                 if ($use_cname) {
                                         printf OUT "%-20s IN AAAA    %s\n", "$host.$ipv6", "$fld";
                                         push @cnames, "$host.$ipv6"
@@ -414,6 +474,106 @@ END
         close(OUT);
 }
 
+sub address_to_reverse_origin {
+        my ($prefix) = @_;
+
+        if ($prefix =~ m/:/) {
+                die "IPv6 reverse not support yet.\n";
+
+
+        } else {
+                my $tmp = $prefix;
+                $tmp =~ s/\.$//;
+                my @tmp = split(/\./, $tmp);
+                @tmp = reverse(@tmp);
+                $tmp = join('.',@tmp);
+                return "$tmp.IN-ADDR.ARPA.";
+        }
+}
+
+sub generate_reverse {
+        my $self = shift;
+        my ($output_file,$reverse_prefix,$selector) = @_;
+
+        dbg "selector=$selector";
+        $self->{selector} = $selector;
+
+        dbg "reverse_prefix=$reverse_prefix";
+        $self->{reverse_prefix} = $reverse_prefix;
+
+        my $ipv = ($reverse_prefix =~ m/:/) ? 6 : 4;
+        dbg "reverse_prefix_ipv=$ipv";
+        $self->{reverse_prefix_ipv} = $ipv;
+
+print "### $reverse_prefix $ipv\n";
+
+        dbg "output_file=$output_file";
+        $self->{output_file} = $output_file;
+        $self->read_old_timestamp;
+
+        my %vars = %{$self->{vars}};
+
+        open(OUT,">$output_file") or die "failed to open '$output_file' for writing\n";
+
+        # read variables
+        my $domain    = $vars{domain};
+        my $origin    = address_to_reverse_origin($reverse_prefix);
+        my $email     = $vars{email};
+        $email =~ tr/@/./;
+        my $prins     = $self->get_primary_ns;
+        my $timestamp = $self->get_timestamp;
+        my $ipv4      = $vars{ipv4_zone_word} || 'ipv4';
+        my $ipv6      = $vars{ipv6_zone_word} || 'ipv6';
+
+        print OUT <<END
+; -- $selector view
+\$ORIGIN $origin
+\$TTL 1h
+$domain.      IN  SOA  $prins $email. (
+              $timestamp ; serial number of this zone file
+              3h         ; slave refresh
+              1h         ; slave retry time in case of a problem
+              4w         ; slave expiration time
+              1h         ; minimum caching time in case of failed lookups
+              )
+END
+        ;
+
+        foreach my $host ($self->get_rule_names) {
+                next if $host =~ m/\@mx/;
+                dbg "  host=$host";
+                foreach my $fld ($self->get_rule($host)) {
+                        dbg "    fld=$fld";
+                        if ($host =~ m/^\@ns/) {
+                                my $tmp = $fld;
+                                $tmp .= ".$domain." if $fld !~ m/\.$/;
+                                print OUT "@     NS         $tmp\n";
+
+                        } elsif ($ipv eq 4 && $fld =~ m/^\d+\.\d+\.\d+\.\d+$/) {
+                                if (substr($fld,0,length($reverse_prefix)) eq $reverse_prefix) {
+                                        my $rest = substr($fld,length($reverse_prefix));
+                                        printf OUT "%-5s IN PTR     %s\n", $rest, "$host.$domain.";
+                                } else {
+                                        print "# skip $host -> $fld, wrong IPv4 prefix ($reverse_prefix)\n";
+                                }
+
+                        } elsif ($ipv eq 6 && $fld =~ m/^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/) {
+                                if (substr($fld,0,length($reverse_prefix)) eq $reverse_prefix) {
+                                        my $rest = substr($fld,length($reverse_prefix));
+                                        printf OUT "%-20s IN PTR     %s\n", $rest, "$host.$domain.";
+                                } else {
+                                        print "# skip $host -> $fld, wrong IPv6 prefix ($reverse_prefix)\n";
+                                }
+
+                        } else {
+                                print "# skip $host -> $fld, wrong type\n";
+                        }
+                }
+        }
+
+        close(OUT);
+}
+
 
 # ------------------------------------------------------------------------
 # this is the main part of the program
@@ -421,11 +581,17 @@ package main;
 my $opt_input;
 my $opt_output;
 my $opt_selector;
+my $opt_reverse;
 
 my $rc = GetOptions(
         # main options
+        's=s'       => \$opt_selector,
         'selector=s'=> \$opt_selector,
+        'O=s'       => \$opt_output,
         'output=s'  => \$opt_output,
+        # reverse
+        'r=s'       => \$opt_reverse,
+        'reverse=s' => \$opt_reverse,
         # verbose
         'debug'     => \$debug,
         # help
@@ -446,12 +612,21 @@ $mz->parse($opt_input);
 
 $mz->dump() if $debug;
 
-if (not defined $opt_output) {
-        my $dom = $mz->{vars}->{domain};
-        my $sel = "";
-        $sel = ".$opt_selector" if defined $opt_selector;
-        $opt_output = "${dom}${sel}.zone"
-}
+if ($opt_reverse) {
+        if (not defined $opt_output) {
+                # TODO: should create a neme here
+                die "please specify --output with --reverse.\n"
+        }
+        $mz->generate_reverse($opt_output, $opt_reverse, $opt_selector);
 
-$mz->generate($opt_output, $opt_selector);
+} else {
+        if (not defined $opt_output) {
+                my $dom = $mz->{vars}->{domain};
+                my $sel = "";
+                $sel = ".$opt_selector" if defined $opt_selector;
+                $opt_output = "${dom}${sel}.zone"
+        }
+
+        $mz->generate_forward($opt_output, $opt_selector);
+}
 
