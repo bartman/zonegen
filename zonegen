@@ -346,7 +346,7 @@ sub generate {
 ; -- $selector view
 \$ORIGIN $origin
 \$TTL 1h
-$domain       IN  SOA  $prins $email. (
+$domain.      IN  SOA  $prins $email. (
               $timestamp ; serial number of this zone file
               3h         ; slave refresh
               1h         ; slave retry time in case of a problem
