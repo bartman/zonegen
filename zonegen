@@ -18,7 +18,7 @@ zonegen - domain zone generator
 =head1 SYNOPSIS
 
     # process metazone file, generate zone file
-    zonegen example.com.zone
+    zonegen example.com.metazone
 
 =cut
 
