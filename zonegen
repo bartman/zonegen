@@ -311,7 +311,7 @@ sub generate {
         dbg "selector=$selector";
         $self->{selector} = $selector;
 
-        dbg "file=$selector";
+        dbg "file=$file";
         $self->{file} = $file;
         $self->read_old_timestamp;
 
