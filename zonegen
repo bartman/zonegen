@@ -271,9 +271,9 @@ sub generate {
         $email =~ tr/@/./;
         my $prins     = $self->get_primary_ns;
         my $timestamp = $self->get_timestamp;
-        my $mcname    = $vars{multiple_cname};
-        my $ipv4      = $vars{ipv4_zone_word};
-        my $ipv6      = $vars{ipv6_zone_word};
+        my $mcname    = $vars{multiple_cname} || 0;
+        my $ipv4      = $vars{ipv4_zone_word} || 'ipv4';
+        my $ipv6      = $vars{ipv6_zone_word} || 'ipv6';
 
         my $mxnum = 1;
 
