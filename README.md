@@ -8,6 +8,15 @@ records in two files.
 
 This script reads from a metazone file and generates zone files.
 
+# Running
+
+There is a simple.metazone file that comes with the tool.  Run it like so:
+
+        mkdir -p internal external
+        zonegen simple.metazone
+        cat internal/example.com.zone
+        cat external/example.com.zone
+
 # Example
 
 For example, given
@@ -30,3 +39,5 @@ and the external zone will contain:
         foo                  CNAME      foo.ipv6
         foo                  CNAME      foo.ipv4
         www                  CNAME      foo
+
+<!-- vim: set ft=mkd -->
