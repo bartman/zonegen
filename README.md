@@ -6,9 +6,19 @@ modify two files (internal and external views).
 Once I started using IPv6 I had another grief, I had to update IPv4 and IPv6 and CNAME
 records in two files.
 
-This script reads from a metazone file and generates zone files.
+This script reads from a metazone file and generates internal/external zone files.  You
+can then use bind's *acl* and *view* features to craft what internal and external
+hosts see.
 
 # Running
+
+There are a few dependencies
+
+ - perl with Parse::RecDescent
+
+You may want to run this on Debian:
+
+    apt-get install libparse-recdescent-perl
 
 There is a simple.metazone file that comes with the tool.  Run it like so:
 
