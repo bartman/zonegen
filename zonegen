@@ -58,7 +58,8 @@ sub new {
 
 my %VARS;
 my %RULES;
-use vars qw{%VARS %RULES};
+my %PASS;
+use vars qw{%VARS %RULES @PASS};
 
 my $grammar = <<'_EOGRAMMAR_';
         start       : statement
@@ -66,6 +67,7 @@ my $grammar = <<'_EOGRAMMAR_';
 
         statement   : l_assign
                     | l_rule
+                    | l_pass
 
         l_assign    : VAR_NAME '=' string
                         { my ($name, $val) = ($item{VAR_NAME}, $item{string});
@@ -78,6 +80,12 @@ my $grammar = <<'_EOGRAMMAR_';
                           main::dbg("## rule: $name : @defn");
                           $MetaZone::RULES{$name} = [] if not defined $MetaZone::RULES{$name};
                           push @{$MetaZone::RULES{$name}}, @defn;
+                          1 }
+
+        l_pass      : '!' /.*/
+                        { my ($rest) = ($item[2]);
+                          main::dbg("## pass: $rest");
+                          push @MetaZone::PASS, $rest;
                           1 }
 
         rule_name   : SPECIAL_RULE
@@ -148,8 +156,9 @@ sub parse {
                 defined $rc or die "parsing failed on line $lno";
         }
 
-        $self->{vars} = \%MetaZone::VARS;
+        $self->{vars}  = \%MetaZone::VARS;
         $self->{rules} = \%MetaZone::RULES;
+        $self->{pass}  = \@MetaZone::PASS;
 
         # only domain is manditory
         $self->{vars}->{domain} || die "domain not specified in $file.";
@@ -252,7 +261,6 @@ sub generate {
         $self->{selector} = $selector;
 
         my %vars = %{$self->{vars}};
-        my %rules = %{$self->{rules}};
 
         open(OUT,">$file") or die "failed to open '$file' for writing\n";
 
@@ -318,6 +326,15 @@ END
                                 printf OUT "%-20s CNAME      %s\n", "$host", "$cn";
                         }
                 }
+        }
+
+        foreach my $_fld (@{$self->{pass}}) {
+                my $fld = $_fld; # avoid modifying the original array
+                if ($fld =~ m/=/) {
+                        next if $fld !~ m/^$selector=(.*)$/;
+                        $fld = $1
+                }
+                print OUT "$fld\n";
         }
 
         close(OUT);

@@ -23,9 +23,14 @@ ipv6_zone_word = ipv6   # creates name.ipv6.$domain
 www:     baz
 
 # A and AAAA records have an address on the right side
-# use an int* or i= prefix if you only want it in the internal zone
-# use an ext= or e= prefix if you only want it in the external zone
+# use an int= prefix if you only want it in the internal zone
+# use an ext= prefix if you only want it in the external zone
 # no prefix means all zones
 foo: int=10.0.0.1 ext=72.0.0.1 2001:1234::1
 bar: int=10.0.0.2 ext=72.0.0.2 2001:1234::2
 baz: int=10.0.0.3 ext=72.0.0.3 2001:1234::3
+
+# lines beginning with ! will be passed verbatim
+# they can be prefixed with int= or ext=
+!foo.1.2.3 A 1.2.3.4
+!int=bar.1.2.3 A 1.2.3.4
