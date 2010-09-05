@@ -109,7 +109,7 @@ my $grammar = <<'_EOGRAMMAR_';
 
         SELECTOR    : 'int' | 'ext'
 
-        DOMAIN_NAME : /[a-z0-9.]+/i
+        DOMAIN_NAME : /[a-z0-9.-]+/i
 
         IPv4        : /\d+\.\d+\.\d+\.\d+/
 
