@@ -10,6 +10,7 @@
 # configuration variables that alter how zonegen works
 domain         = example.com.
 multiple_cname = 1      # if set uses 2 CNAMEs for ipv4/ipv6 pointing to a host
+                        # http://www.brandonhutchinson.com/multiple_RRs_of_singleon_type.html
 ipv4_zone_word = ipv4   # creates name.ipv4.$domain
 ipv6_zone_word = ipv6   # creates name.ipv6.$domain
 
