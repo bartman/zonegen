@@ -187,13 +187,35 @@ sub get_timestamp {
         return $self->{vars}->{timestamp}
 }
 
+sub get_rule_names {
+        my $self = shift;
+        return sort keys %{$self->{rules}};
+}
+
+sub get_rule {
+        my $self = shift;
+        my ($host) = @_;
+
+        my $selector = $self->{selector};
+
+        my @res;
+        foreach my $_fld (@{${$self->{rules}}{$host}}) {
+                my $fld = $_fld;
+                if ($fld =~ m/=/) {
+                        next if $fld !~ m/^$selector=(.*)$/;
+                        $fld = $1
+                }
+                push @res, $fld;
+        } 
+        return @res;
+}
+
 sub get_primary_ns {
         my $self = shift;
 
         if (not defined $self->{vars}->{primary_ns}) {
                 # if one was not given, try to find the first @ns entry
-                my $nsrule = $self->{rules}->{'@ns'};
-                my $prins = @{$nsrule}[0];
+                my $prins = ($self->get_rule('@ns'))[0];
 
                 # if no trailing ., append origin
                 if ($prins !~ m/\.$/) {
@@ -226,10 +248,11 @@ sub generate {
         my $self = shift;
         my ($selector,$file) = @_;
 
+        dbg "selector=$selector";
+        $self->{selector} = $selector;
+
         my %vars = %{$self->{vars}};
         my %rules = %{$self->{rules}};
-
-        dbg "selector=$selector";
 
         open(OUT,">$file") or die "failed to open '$file' for writing\n";
 
@@ -258,16 +281,11 @@ $domain       IN  SOA  $prins $email. (
 END
         ;
 
-        foreach my $host (sort keys %rules) {
+        foreach my $host ($self->get_rule_names) {
                 dbg "  host=$host";
                 my @cnames = ();
-                foreach my $rec (sort @{$rules{$host}}) {
-                        my $fld = $rec;
-                        if ($fld =~ m/=/) {
-                                next if $fld !~ m/^$selector=(.*)$/;
-                                $fld = $1
-                        }
-                        dbg "    rec=$rec";
+                foreach my $fld ($self->get_rule($host)) {
+                        dbg "    fld=$fld";
                         if ($host =~ m/^@/) {
                                 printf OUT "%-20s %-4s       %s\n", "@", uc(substr($host,1)), "$fld";
                         } elsif ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
