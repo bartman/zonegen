@@ -171,13 +171,9 @@ sub cleanupvars {
         # email, set to root@domain, no trailing dot
         $self->{vars}->{email} = 'root@' . $self->{vars}->{domain} if not defined $self->{vars}->{email};
         $self->{vars}->{email} =~ s/\.*$//;
-
-        # primary_ns, set to domain, trailing dot
-        $self->{vars}->{primary_ns} = $self->{vars}->{domain} if not defined $self->{vars}->{primary_ns};
-        $self->{vars}->{primary_ns} =~ s/\.*$/./;
 }
 
-sub timestamp {
+sub get_timestamp {
         my $self = shift;
 
         if (not defined $self->{vars}->{timestamp}) {
@@ -191,6 +187,25 @@ sub timestamp {
         return $self->{vars}->{timestamp}
 }
 
+sub get_primary_ns {
+        my $self = shift;
+
+        if (not defined $self->{vars}->{primary_ns}) {
+                # if one was not given, try to find the first @ns entry
+                my $nsrule = $self->{rules}->{'@ns'};
+                my $prins = @{$nsrule}[0];
+
+                # if no trailing ., append origin
+                if ($prins !~ m/\.$/) {
+                        my $orig = $self->{vars}->{origin};
+                        $prins .= ".$orig";
+                }
+
+                $self->{vars}->{primary_ns} = $prins;
+        }
+
+        return $self->{vars}->{primary_ns}
+}
 
 sub dump {
         my $self = shift;
@@ -223,8 +238,8 @@ sub generate {
         my $origin    = $vars{origin};
         my $email     = $vars{email};
         $email =~ tr/@/./;
-        my $prins     = $vars{primary_ns};
-        my $timestamp = $self->timestamp;
+        my $prins     = $self->get_primary_ns;
+        my $timestamp = $self->get_timestamp;
         my $mcname    = $vars{multiple_cname};
         my $ipv4      = $vars{ipv4_zone_word};
         my $ipv6      = $vars{ipv6_zone_word};
