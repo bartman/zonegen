@@ -5,6 +5,7 @@ use Pod::Usage;
 use Getopt::Long;
 use Parse::RecDescent;
 use Data::Dumper;
+use Date::Format;
 use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
 
 # ------------------------------------------------------------------------
@@ -44,6 +45,7 @@ sub assert_root {
 # ------------------------------------------------------------------------
 #
 package MetaZone;
+use Date::Format;
 use subs qw(dbg);
 *dbg = \&::main::dbg;
 
@@ -148,6 +150,45 @@ sub parse {
 
         $self->{vars} = \%MetaZone::VARS;
         $self->{rules} = \%MetaZone::RULES;
+
+        # only domain is manditory
+        $self->{vars}->{domain} || die "domain not specified in $file.";
+
+        $self->cleanupvars
+}
+
+sub cleanupvars {
+        my $self = shift;
+
+        # must have domain, and it shold have no dots at the end
+        $self->{vars}->{domain} || die "domain not specified.";
+        $self->{vars}->{domain} =~ s/\.*$//;
+
+        # origin, if not specified is set to domain, it will have a trailing dot
+        $self->{vars}->{origin} = $self->{vars}->{domain} if not defined $self->{vars}->{origin};
+        $self->{vars}->{origin} =~ s/\.*$/./;
+
+        # email, set to root@domain, no trailing dot
+        $self->{vars}->{email} = 'root@' . $self->{vars}->{domain} if not defined $self->{vars}->{email};
+        $self->{vars}->{email} =~ s/\.*$//;
+
+        # primary_ns, set to domain, trailing dot
+        $self->{vars}->{primary_ns} = $self->{vars}->{domain} if not defined $self->{vars}->{primary_ns};
+        $self->{vars}->{primary_ns} =~ s/\.*$/./;
+}
+
+sub timestamp {
+        my $self = shift;
+
+        if (not defined $self->{vars}->{timestamp}) {
+                # generate a time stamp, with a 15min accuracy
+                my $now = time;
+                my ($sec,$min,$hour,@rest) = localtime($now);
+                my $seq = ((($hour * 60) + $min) * 100) / (24 * 60);
+                $self->{vars}->{timestamp} = time2str("%Y%m%d", $now) . sprintf("%02d", $seq);
+        }
+
+        return $self->{vars}->{timestamp}
 }
 
 
@@ -177,25 +218,27 @@ sub generate {
 
         open(OUT,">$file") or die "failed to open '$file' for writing\n";
 
-        my $domain = $vars{domain};
-        my $origin = $vars{origin}    || $domain;
-        my $email  = $vars{email};
-        my $prins  = $vars{primaryns} || $domain;
-
-        my $mcname = $vars{multiple_cname} || 0;
-        my $ipv4   = $vars{ipv4_zone_word} || "ipv4";
-        my $ipv6   = $vars{ipv6_zone_word} || "ipv6";
+        # read variables
+        my $domain    = $vars{domain};
+        my $origin    = $vars{origin};
+        my $email     = $vars{email};
+        $email =~ tr/@/./;
+        my $prins     = $vars{primary_ns};
+        my $timestamp = $self->timestamp;
+        my $mcname    = $vars{multiple_cname};
+        my $ipv4      = $vars{ipv4_zone_word};
+        my $ipv6      = $vars{ipv6_zone_word};
 
         print OUT <<END
 ; -- $selector view
 \$ORIGIN $origin
 \$TTL 1h
-$domain       IN  SOA  $prins $email (
-              2007120710 ; serial number of this zone file
-              1d         ; slave refresh (1 day)
-              1d         ; slave retry time in case of a problem (1 day)
-              4w         ; slave expiration time (4 weeks)
-              1h         ; minimum caching time in case of failed lookups (1 hour)
+$domain       IN  SOA  $prins $email. (
+              $timestamp ; serial number of this zone file
+              1d         ; slave refresh
+              1d         ; slave retry time in case of a problem
+              4w         ; slave expiration time
+              1h         ; minimum caching time in case of failed lookups
               )
 END
         ;
@@ -268,7 +311,7 @@ $mz->parse($opt_file);
 $mz->dump() if $debug;
 
 my $domain = $mz->{vars}->{domain};
-$mz->generate('int', "internal/${domain}zone");
-$mz->generate('ext', "external/${domain}zone");
+$mz->generate('int', "internal/${domain}.zone");
+$mz->generate('ext', "external/${domain}.zone");
 
 
