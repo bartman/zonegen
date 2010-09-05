@@ -1,0 +1,31 @@
+# This file is an example metazone file for zonegen.
+#
+# To generate zone files run:
+#     metazone example.com.metazone
+#
+# which will generate:
+#     internal/example.com.zone
+#     external/example.com.zone
+
+# configuration variables that alter how zonegen works
+domain         = example.com.
+origin         = example.com.
+email          = root@example.com
+multiple_cname = 1      # if set uses 2 CNAMEs for ipv4/ipv6 pointing to a host
+ipv4_zone_word = ipv4   # creates name.ipv4.$domain
+ipv6_zone_word = ipv6   # creates name.ipv6.$domain
+
+# NS and MX records for the @ section
+@ns:     foo.ipv4 foo.ipv6
+@mx:     bar.ipv4 bar.ipv6
+
+# CNAMES have a name on the right side
+www:     baz
+
+# A and AAAA records have an address on the right side
+# use an int* or i= prefix if you only want it in the internal zone
+# use an ext= or e= prefix if you only want it in the external zone
+# no prefix means all zones
+foo: int=10.0.0.1 ext=72.0.0.1 2001:1234::1
+bar: int=10.0.0.2 ext=72.0.0.2 2001:1234::2
+baz: int=10.0.0.3 ext=72.0.0.3 2001:1234::3
