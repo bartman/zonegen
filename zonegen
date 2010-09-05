@@ -1,0 +1,274 @@
+#!/usr/bin/perl -w
+use strict;
+use warnings;
+use Pod::Usage;
+use Getopt::Long;
+use Parse::RecDescent;
+use Data::Dumper;
+use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
+
+# ------------------------------------------------------------------------
+# program help in POD format
+#
+=head1 NAME
+
+zonegen - domain zone generator
+
+=head1 SYNOPSIS
+
+    # process metazone file, generate zone file
+    zonegen example.com.zone
+
+=cut
+
+# ------------------------------------------------------------------------
+# general helper functions
+
+my $debug = 0;
+sub dbg {
+        my $txt = "@_";
+        chomp $txt;
+        warn "# $txt\n" if $debug;
+}
+
+sub assert_root {
+        my $txt = join(' ', @_);
+        dbg "your uid is $>";
+        if ($> ne 0) {
+                die "You need to be root"
+                    . (length($txt)==0 ? "." : " $txt")
+                    . "\n";
+        }
+}
+
+# ------------------------------------------------------------------------
+#
+package MetaZone;
+use subs qw(dbg);
+*dbg = \&::main::dbg;
+
+sub new {
+        my $class = shift;
+        my $this = {};
+        bless $this, $class;
+        return $this;
+}
+
+my %VARS;
+my %RULES;
+use vars qw{%VARS %RULES};
+
+my $grammar = <<'_EOGRAMMAR_';
+        start       : statement
+                        { if (length($text)) { warn "parsing error at: $text\n"; return } }
+
+        statement   : l_assign
+                    | l_rule
+
+        l_assign    : VAR_NAME '=' string
+                        { my ($name, $val) = ($item{VAR_NAME}, $item{string});
+                          main::dbg("## assign: $name = $val");
+                          $MetaZone::VARS{$name} = $val;
+                          1 }
+
+        l_rule      : rule_name ':' rule_defns
+                        { my ($name, @defn) = ($item{rule_name}, @{$item{rule_defns}});
+                          main::dbg("## rule: $name : @defn");
+                          $MetaZone::RULES{$name} = [] if not defined $MetaZone::RULES{$name};
+                          push @{$MetaZone::RULES{$name}}, @defn;
+                          1 }
+
+        rule_name   : SPECIAL_RULE
+                    | DOMAIN_NAME
+
+        rule_defns  : rule_defn(s)
+
+        rule_defn   : SELECTOR '=' rule_word
+                        { "$item[1]=$item[3]" }
+                    | rule_word
+
+        rule_word   : IPv6
+                    | IPv4
+                    | DOMAIN_NAME
+
+        string      : /\S+/
+
+        VAR_NAME    : /\w[a-z0-9_]*/i
+
+        SPECIAL_RULE : '@mx' | '@ns'
+
+        SELECTOR    : 'int' | 'ext'
+
+        DOMAIN_NAME : /[a-z0-9.]+/i
+
+        IPv4        : /\d+\.\d+\.\d+\.\d+/
+
+        IPv6        : /([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/
+
+_EOGRAMMAR_
+
+sub readfile {
+        my ($file) = @_;
+
+        open(IN, "<$file") or die "failed to open '$file' for reading\n";
+        my @data = <IN>;
+        close(IN);
+
+        # remove comments, strip CRs, etc
+        return map { 
+            chomp;
+            $_ =~ s/#.*$//;
+            $_ =~ s/^\s*//;
+            $_ =~ s/\s*$//;
+            $_
+        } @data;
+}
+
+sub parse {
+        my $self = shift;
+        my ($file) = @_;
+
+        dbg "reading from $file";
+
+        my @data = readfile($file);
+
+        my $parser=Parse::RecDescent->new($grammar);
+
+        my $lno=0;
+        for my $line (@data) {
+                $lno++;
+
+                next if $line =~ /^\s*$/;
+
+                dbg "line $lno: $line";
+
+                my $rc = $parser->start($line);
+                defined $rc or die "parsing failed on line $lno";
+        }
+
+        $self->{vars} = \%MetaZone::VARS;
+        $self->{rules} = \%MetaZone::RULES;
+}
+
+
+sub dump {
+        my $self = shift;
+
+        print "-- variables --\n";
+        while ( my ($key, $value) = each %{$self->{vars}} ) {
+                printf "  %20s = %s\n", $key, $value;
+        }
+
+        print "-- rules --\n";
+        while ( my ($key, $value) = each %{$self->{rules}} ) {
+                printf "  %20s = %s\n", $key, join(' ', @{$value});
+        }
+}
+
+
+sub generate {
+        my $self = shift;
+        my ($selector,$file) = @_;
+
+        my %vars = %{$self->{vars}};
+        my %rules = %{$self->{rules}};
+
+        dbg "selector=$selector";
+
+        open(OUT,">$file") or die "failed to open '$file' for writing\n";
+
+        my $domain = $vars{domain};
+        my $origin = $vars{origin}    || $domain;
+        my $email  = $vars{email};
+        my $prins  = $vars{primaryns} || $domain;
+
+        my $mcname = $vars{multiple_cname} || 0;
+        my $ipv4   = $vars{ipv4_zone_word} || "ipv4";
+        my $ipv6   = $vars{ipv6_zone_word} || "ipv6";
+
+        print OUT <<END
+; -- $selector view
+\$ORIGIN $origin
+\$TTL 1h
+$domain       IN  SOA  $prins $email (
+              2007120710 ; serial number of this zone file
+              1d         ; slave refresh (1 day)
+              1d         ; slave retry time in case of a problem (1 day)
+              4w         ; slave expiration time (4 weeks)
+              1h         ; minimum caching time in case of failed lookups (1 hour)
+              )
+END
+        ;
+
+        foreach my $host (sort keys %rules) {
+                dbg "  host=$host";
+                my @cnames = ();
+                foreach my $rec (sort @{$rules{$host}}) {
+                        my $fld = $rec;
+                        if ($fld =~ m/=/) {
+                                next if $fld !~ m/^$selector=(.*)$/;
+                                $fld = $1
+                        }
+                        dbg "    rec=$rec";
+                        if ($host =~ m/^@/) {
+                                printf OUT "%-20s %-4s       %s\n", "@", uc(substr($host,1)), "$fld";
+                        } elsif ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
+                                if ($mcname) {
+                                        printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
+                                        push @cnames, "$host.$ipv4"
+                                } else {
+                                        printf OUT "%-20s IN A       %s\n", "$host", "$fld";
+                                }
+                        } elsif ($fld =~ m/([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/) {
+                                if ($mcname) {
+                                        printf OUT "%-20s IN AAAA    %s\n", "$host.$ipv6", "$fld";
+                                        push @cnames, "$host.$ipv6"
+                                } else {
+                                        printf OUT "%-20s IN A       %s\n", "$host", "$fld";
+                                }
+                        } else {
+                                printf OUT "%-20s CNAME      %s\n", "$host", "$fld";
+                        }
+                }
+                if (@cnames) {
+                        foreach my $cn (@cnames) {
+                                printf OUT "%-20s CNAME      %s\n", "$host", "$cn";
+                        }
+                }
+        }
+
+        close(OUT);
+}
+
+
+# ------------------------------------------------------------------------
+# this is the main part of the program
+package main;
+my $opt_file;
+
+my $rc = GetOptions(
+        # verbose
+        'debug'     => \$debug,
+        # help
+        'usage'     => sub { pod2usage(-exitval => EXIT_SUCCESS, -verbose => 0) },
+        'help'      => sub { pod2usage(-exitval => EXIT_SUCCESS, -verbose => 1) },
+);
+pod2usage('Invalid options specified.') if !$rc;
+
+( $#ARGV < 0 ) && die "need to specify a metazone file to read.\n";
+( $#ARGV > 0 ) && die "too many options; only one metazone file please.\n";
+$opt_file = $ARGV[0];
+
+#$::RD_TRACE = 1;
+$::RD_HINT = 1;
+
+my $mz = MetaZone->new();
+$mz->parse($opt_file);
+
+$mz->dump() if $debug;
+
+my $domain = $mz->{vars}->{domain};
+$mz->generate('int', "internal/${domain}zone");
+$mz->generate('ext', "external/${domain}zone");
+
+
