@@ -337,8 +337,8 @@ sub generate {
 \$TTL 1h
 $domain       IN  SOA  $prins $email. (
               $timestamp ; serial number of this zone file
-              1d         ; slave refresh
-              1d         ; slave retry time in case of a problem
+              3h         ; slave refresh
+              1h         ; slave retry time in case of a problem
               4w         ; slave expiration time
               1h         ; minimum caching time in case of failed lookups
               )
