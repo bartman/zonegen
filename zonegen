@@ -231,6 +231,26 @@ sub get_rule {
         return @res;
 }
 
+sub get_no_cname_hosts_map {
+        my $self = shift;
+
+        my %res;
+        foreach my $host ($self->get_rule_names) {
+                next if ($host !~ m/@/);
+                foreach my $fld ($self->get_rule($host)) {
+                        if ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
+                                warn "$host points at IPv4 $fld\n";
+                        } elsif ($fld =~ m/([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/) {
+                                warn "$host points at IPv6 $fld\n";
+                        } else {
+print "### $host -> $fld\n";
+                                $res{$fld} = 1;
+                        }
+                }
+        }
+        return %res;
+}
+
 sub get_primary_ns {
         my $self = shift;
 
@@ -310,7 +330,6 @@ sub generate {
         my $ipv4      = $vars{ipv4_zone_word} || 'ipv4';
         my $ipv6      = $vars{ipv6_zone_word} || 'ipv6';
 
-        my $mxnum = 1;
 
         print OUT <<END
 ; -- $selector view
@@ -326,9 +345,14 @@ $domain       IN  SOA  $prins $email. (
 END
         ;
 
+        my $mxnum = 1;
+        my %nocnamehosts;
+        %nocnamehosts = $self->get_no_cname_hosts_map if $mcname;
+
         foreach my $host ($self->get_rule_names) {
                 dbg "  host=$host";
                 my @cnames = ();
+                my $use_cname = $mcname && not $nocnamehosts{$host};
                 foreach my $fld ($self->get_rule($host)) {
                         dbg "    fld=$fld";
                         if ($host =~ m/^@/) {
@@ -339,18 +363,20 @@ END
                                 }
                                 printf OUT "%-20s %-8s   %s\n", "@", $type, "$fld";
                         } elsif ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
-                                if ($mcname) {
+                                if ($use_cname) {
                                         printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
                                         push @cnames, "$host.$ipv4"
                                 } else {
+                                        printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
                                         printf OUT "%-20s IN A       %s\n", "$host", "$fld";
                                 }
                         } elsif ($fld =~ m/([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/) {
-                                if ($mcname) {
+                                if ($use_cname) {
                                         printf OUT "%-20s IN AAAA    %s\n", "$host.$ipv6", "$fld";
                                         push @cnames, "$host.$ipv6"
                                 } else {
-                                        printf OUT "%-20s IN A       %s\n", "$host", "$fld";
+                                        printf OUT "%-20s IN AAAA    %s\n", "$host.$ipv6", "$fld";
+                                        printf OUT "%-20s IN AAAA    %s\n", "$host", "$fld";
                                 }
                         } else {
                                 printf OUT "%-20s CNAME      %s\n", "$host", "$fld";
@@ -363,12 +389,14 @@ END
                 }
         }
 
+        print OUT "\n; --- passthrough lines ---\n" if @{$self->{pass}};
         foreach my $_fld (@{$self->{pass}}) {
                 my $fld = $_fld; # avoid modifying the original array
                 if ($fld =~ m/=/) {
                         next if $fld !~ m/^$selector=(.*)$/;
                         $fld = $1
                 }
+                $fld =~ s/^\s*//;
                 print OUT "$fld\n";
         }
 
