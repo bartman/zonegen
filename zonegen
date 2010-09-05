@@ -200,7 +200,7 @@ sub get_rule {
 
         my @res;
         foreach my $_fld (@{${$self->{rules}}{$host}}) {
-                my $fld = $_fld;
+                my $fld = $_fld; # avoid modifying the original array
                 if ($fld =~ m/=/) {
                         next if $fld !~ m/^$selector=(.*)$/;
                         $fld = $1
@@ -267,6 +267,8 @@ sub generate {
         my $ipv4      = $vars{ipv4_zone_word};
         my $ipv6      = $vars{ipv6_zone_word};
 
+        my $mxnum = 1;
+
         print OUT <<END
 ; -- $selector view
 \$ORIGIN $origin
@@ -287,7 +289,12 @@ END
                 foreach my $fld ($self->get_rule($host)) {
                         dbg "    fld=$fld";
                         if ($host =~ m/^@/) {
-                                printf OUT "%-20s %-4s       %s\n", "@", uc(substr($host,1)), "$fld";
+                                my $type = uc(substr($host,1));
+                                if ($type eq 'MX') {
+                                        $type .= " $mxnum";
+                                        $mxnum++;
+                                }
+                                printf OUT "%-20s %-8s   %s\n", "@", $type, "$fld";
                         } elsif ($fld =~ m/\d+\.\d+\.\d+\.\d/) {
                                 if ($mcname) {
                                         printf OUT "%-20s IN A       %s\n", "$host.$ipv4", "$fld";
