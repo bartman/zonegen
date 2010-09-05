@@ -22,10 +22,11 @@ You may want to run this on Debian:
 
 There is a simple.metazone file that comes with the tool.  Run it like so:
 
-        mkdir -p internal external
-        zonegen simple.metazone
-        cat internal/example.com.zone
-        cat external/example.com.zone
+        zonegen --selector int simple.metazone
+        cat example.com.int.zone
+
+        zonegen --selector ext simple.metazone
+        cat example.com.ext.zone
 
 # Example
 
