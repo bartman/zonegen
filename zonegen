@@ -188,9 +188,21 @@ sub get_timestamp {
         if (not defined $self->{vars}->{timestamp}) {
                 # generate a time stamp, with a 15min accuracy
                 my $now = time;
-                my ($sec,$min,$hour,@rest) = localtime($now);
-                my $seq = ((($hour * 60) + $min) * 100) / (24 * 60);
-                $self->{vars}->{timestamp} = time2str("%Y%m%d", $now) . sprintf("%02d", $seq);
+                my $today = time2str("%Y%m%d", $now);
+                my $seq = 0;
+
+                if (defined $self->{old_timestamp}) {
+                        my $old = 0;
+                        if ($self->{old_timestamp} =~ m/^$today(\d\d)$/) {
+                                $old = $1;
+                        }
+                        $seq = $old + 1;
+                } else {
+                        my ($sec,$min,$hour,@rest) = localtime($now);
+                        $seq = ((($hour * 60) + $min) * 100) / (24 * 60);
+                }
+
+                $self->{vars}->{timestamp} = sprintf("$today%02d", $seq);
         }
 
         return $self->{vars}->{timestamp}
@@ -252,6 +264,25 @@ sub dump {
         }
 }
 
+sub read_old_timestamp {
+        my $self = shift;
+
+        my $file = $self->{file};
+        -f $file || return;
+
+        my $data;
+        {
+                local $/=undef;
+                open(IN, "<$file") or die "failed to open '$file' for reading\n";
+                binmode IN;
+                $data = <IN>;
+                close(IN);
+        }
+
+        # try to find something that looks like the old timestamp
+        $data =~ m/\sIN\s+SOA\s[^\(]+\(.*\s(2\d{9})\s/s;
+        $self->{old_timestamp} = $1 if defined $1;
+}
 
 sub generate {
         my $self = shift;
@@ -259,6 +290,10 @@ sub generate {
 
         dbg "selector=$selector";
         $self->{selector} = $selector;
+
+        dbg "file=$selector";
+        $self->{file} = $file;
+        $self->read_old_timestamp;
 
         my %vars = %{$self->{vars}};
 
