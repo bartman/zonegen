@@ -6,7 +6,7 @@ use Getopt::Long;
 use Parse::RecDescent;
 use Data::Dumper;
 use Date::Format;
-use Net::IP;
+#use Net::IP;
 use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
 
 # ------------------------------------------------------------------------
