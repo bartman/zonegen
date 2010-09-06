@@ -6,6 +6,7 @@ use Getopt::Long;
 use Parse::RecDescent;
 use Data::Dumper;
 use Date::Format;
+use Net::IP;
 use POSIX qw( EXIT_SUCCESS EXIT_FAILURE );
 
 # ------------------------------------------------------------------------
@@ -474,13 +475,29 @@ END
         close(OUT);
 }
 
-sub address_to_reverse_origin {
+sub expand_ipv6 {
+        my ($addr) = @_;
+        my $tmp = $addr;
+        my @tmp = split(':', $tmp);
+        @tmp = map { 
+            length($_) ? sprintf "%04s", $_
+                       : '0000' . (':0000' x (7 - $#tmp))
+            } @tmp;
+        $tmp = join(':', @tmp);
+        return $tmp;
+}
+
+sub address_to_reverse {
         my ($prefix) = @_;
 
         if ($prefix =~ m/:/) {
-                die "IPv6 reverse not support yet.\n";
-
-
+                # 2001:470:1c:1cb: -> b.c.1.0.c.1.0.0.0.7.4.0.1.0.0.2.ip6.int.
+                my $tmp = expand_ipv6($prefix);
+                $tmp =~ s/://g;
+                my @tmp = split('', $tmp);
+                @tmp = reverse(@tmp);
+                $tmp = join('.', @tmp);
+                return "$tmp.ip6.int.";
         } else {
                 my $tmp = $prefix;
                 $tmp =~ s/\.$//;
@@ -505,8 +522,6 @@ sub generate_reverse {
         dbg "reverse_prefix_ipv=$ipv";
         $self->{reverse_prefix_ipv} = $ipv;
 
-print "### $reverse_prefix $ipv\n";
-
         dbg "output_file=$output_file";
         $self->{output_file} = $output_file;
         $self->read_old_timestamp;
@@ -517,7 +532,7 @@ print "### $reverse_prefix $ipv\n";
 
         # read variables
         my $domain    = $vars{domain};
-        my $origin    = address_to_reverse_origin($reverse_prefix);
+        my $origin    = address_to_reverse($reverse_prefix);
         my $email     = $vars{email};
         $email =~ tr/@/./;
         my $prins     = $self->get_primary_ns;
@@ -526,10 +541,10 @@ print "### $reverse_prefix $ipv\n";
         my $ipv6      = $vars{ipv6_zone_word} || 'ipv6';
 
         print OUT <<END
-; -- $selector view
+; -- reverse $selector view
 \$ORIGIN $origin
 \$TTL 1h
-$domain.      IN  SOA  $prins $email. (
+@             IN  SOA  $prins $email. (
               $timestamp ; serial number of this zone file
               3h         ; slave refresh
               1h         ; slave retry time in case of a problem
@@ -538,6 +553,9 @@ $domain.      IN  SOA  $prins $email. (
               )
 END
         ;
+
+        my $revplen = length($reverse_prefix);
+        my $origlen = length($origin);
 
         foreach my $host ($self->get_rule_names) {
                 next if $host =~ m/\@mx/;
@@ -550,17 +568,20 @@ END
                                 print OUT "@     NS         $tmp\n";
 
                         } elsif ($ipv eq 4 && $fld =~ m/^\d+\.\d+\.\d+\.\d+$/) {
-                                if (substr($fld,0,length($reverse_prefix)) eq $reverse_prefix) {
-                                        my $rest = substr($fld,length($reverse_prefix));
+                                if (substr($fld,0,$revplen) eq $reverse_prefix) {
+                                        my $rest = substr($fld,$revplen);
+                                        die "only expecting /24 addr" if $rest =~ m/\./;
                                         printf OUT "%-5s IN PTR     %s\n", $rest, "$host.$domain.";
                                 } else {
                                         print "# skip $host -> $fld, wrong IPv4 prefix ($reverse_prefix)\n";
                                 }
 
                         } elsif ($ipv eq 6 && $fld =~ m/^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/) {
-                                if (substr($fld,0,length($reverse_prefix)) eq $reverse_prefix) {
-                                        my $rest = substr($fld,length($reverse_prefix));
-                                        printf OUT "%-20s IN PTR     %s\n", $rest, "$host.$domain.";
+                                my $rfld = address_to_reverse($fld);
+                                my $prelen = length($rfld)-$origlen;
+                                if (substr($rfld,$prelen) eq $origin) {
+                                        my $pre = substr($rfld,0,$prelen-1);
+                                        print OUT "$pre   IN PTR   $host.$domain.\n";
                                 } else {
                                         print "# skip $host -> $fld, wrong IPv6 prefix ($reverse_prefix)\n";
                                 }
