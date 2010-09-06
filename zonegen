@@ -491,13 +491,13 @@ sub address_to_reverse {
         my ($prefix) = @_;
 
         if ($prefix =~ m/:/) {
-                # 2001:470:1c:1cb: -> b.c.1.0.c.1.0.0.0.7.4.0.1.0.0.2.ip6.int.
+                # 2001:470:1c:1cb: -> b.c.1.0.c.1.0.0.0.7.4.0.1.0.0.2.ip6.arpa.
                 my $tmp = expand_ipv6($prefix);
                 $tmp =~ s/://g;
                 my @tmp = split('', $tmp);
                 @tmp = reverse(@tmp);
                 $tmp = join('.', @tmp);
-                return "$tmp.ip6.int.";
+                return "$tmp.ip6.arpa.";
         } else {
                 my $tmp = $prefix;
                 $tmp =~ s/\.$//;
